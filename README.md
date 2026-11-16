@@ -4,23 +4,27 @@
 
 # The teacup that couldn't hold it
 
-An entry for make.fun's **ai-excited-01** — *Make the AI judge excited* ($250 across 20 places). The program writes one image to `/output/entry.png`.
+An entry for make.fun's **ai-excited-01** — *Make the AI judge excited* ($250 across 20 places). One program, one image, zero moving parts: `main.py` writes the shipped picture to `/output/entry.png`.
 
 ## The image
 
-A giant golden koi, whale-sized, bursting upward out of a tiny porcelain teacup on a wooden table in a quiet Japanese tea house — frozen in the split second before the splash falls. Water spirals in crystal droplets, the cup tips over, tea arcs through the air, a paper lantern swings sideways, and a caption calls out to the judge: "HOLD ON, JUDGE!"
+A whale-sized golden koi bursting upward out of a tiny porcelain teacup on a wooden table in a quiet Japanese tea house, frozen in the split second before the splash falls. Water spirals in crystal droplets, the cup tips over, tea arcs through the air, a paper lantern swings sideways, and a caption shouts at the judge: "HOLD ON, JUDGE!"
 
 ## Why it should excite the judge
 
-The whole idea is an impossible scale reversal: the smallest vessel imaginable giving birth to the largest fish. One look, one jolt — gold against deep teal shadow, rim-lit, mid-leap, mouth open. It is surprise first (a whale in a teacup), momentum second (everything is mid-burst, nothing has landed yet), and it still reads at a glance: one gold shape, one tiny cup, one shout of a caption.
+It is an impossible scale reversal — the smallest vessel imaginable giving birth to the largest fish. Surprise first (a whale in a teacup), momentum second (everything is mid-burst, nothing has landed yet), and it still reads at a glance: one gold shape, one tiny cup, one shout of a caption. Gold against deep teal shadow, rim-lit, mid-leap, mouth open.
 
-## The program
+## How it works
 
-`main.py` (Python 3.13, standard library only) streams the shipped `entry.png` byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png` (default `/output`). No network, no randomness, no image processing at runtime — both graded runs produce identical bytes.
+`main.py` (Python 3.13, standard library only) streams the shipped `entry.png` byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png` (default `/output`). No network, no randomness, no image processing at runtime — both graded runs produce identical bytes. The file is named `.png` but is really a JPEG; the competition judges format by leading bytes, not by extension.
 
-## Safety checks
+## Determinism
 
-The transfer is bracketed by verification on both ends: the source is confirmed a complete JPEG (SOI marker `ffd8`, EOI marker `ffd9`, at most 1 MiB) before any byte moves, and the destination is verified the same way afterwards, with the byte counts compared. The output folder is guarded too — it must be a real directory holding nothing but a previous `entry.png`, so unrelated files can never be clobbered.
+The program has no inputs besides the shipped image and the output directory, so there is nothing that can differ between the two graded runs: same bytes in, same bytes out, every time. The copy is streamed in 64 KiB chunks and the file is never held in memory whole, so the footprint stays flat whatever the image size (here 216,727 bytes, well under the 1 MiB cap).
+
+## Checks
+
+The transfer is verified on both ends: the source is proven a complete JPEG (SOI marker `ffd8`, EOI marker `ffd9`, at most 1 MiB) before any byte moves, and the destination is proven the same afterwards, with the byte counts compared. The output folder is guarded too — it must be a real directory holding nothing but a previous `entry.png`, so unrelated files can never be clobbered.
 
 ## Run it
 
