@@ -4,29 +4,29 @@
 
 # The teacup that couldn't hold it
 
-An entry for make.fun's **ai-excited-01** — *Make the AI judge excited* ($250 across 20 places). One program, one image, zero moving parts: `main.py` writes the shipped picture to `/output/entry.png`.
+An entry for make.fun's **ai-excited-01** — *Make the AI judge excited* ($250 across 20 places). One image, one small program, no moving parts: `main.py` carries the shipped picture to `/output/entry.png`.
 
-## The image
+## The picture
 
-A whale-sized golden koi bursting upward out of a tiny porcelain teacup on a wooden table in a quiet Japanese tea house, frozen in the split second before the splash falls. Water spirals in crystal droplets, the cup tips over, tea arcs through the air, a paper lantern swings sideways, and a caption shouts at the judge: "HOLD ON, JUDGE!"
+A golden koi the size of a whale erupts out of a tiny porcelain teacup on a wooden table in a quiet Japanese tea house, caught in the split second before the splash comes down. Water flies in crystal drops, the cup tips, tea arcs through the air, a paper lantern swings sideways, and a caption shouts: "HOLD ON, JUDGE!"
 
-## Why it should excite the judge
+## The idea
 
-It is an impossible scale reversal — the smallest vessel imaginable giving birth to the largest fish. Surprise first (a whale in a teacup), momentum second (everything is mid-burst, nothing has landed yet), and it still reads at a glance: one gold shape, one tiny cup, one shout of a caption. Gold against deep teal shadow, rim-lit, mid-leap, mouth open.
+The smallest vessel anyone can picture giving birth to the biggest fish — a scale reversal that lands before a single word is read. Surprise first (a whale in a teacup), motion second (everything mid-burst, nothing has landed), and it still reads at a glance: one gold shape, one tiny cup, one shout. Gold against deep teal shadow, rim-lit, mid-leap, mouth open.
 
-## How it works
+## The program
 
-`main.py` (Python 3.13, standard library only) streams the shipped `entry.png` byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png` (default `/output`). No network, no randomness, no image processing at runtime — both graded runs produce identical bytes. The file is named `.png` but is really a JPEG; the competition judges format by leading bytes, not by extension.
+`main.py` (Python 3.13, standard library only) streams the shipped `entry.png` byte-for-byte to `$MAKEFUN_OUTPUT_DIR/entry.png` (default `/output`). No network, no randomness, no image decoding at runtime — the two graded runs produce identical bytes. The file is called `.png` but is really a JPEG; the competition judges format by leading bytes, not by the name.
+
+## Guarantees
+
+Before a byte moves, the source is proven a complete JPEG (SOI `ffd8`, EOI `ffd9`, at most 1 MiB); after the copy lands, the destination is proven the same, with byte counts compared. The output folder is guarded too — it has to be a real folder holding nothing but an older `entry.png` — so unrelated files can never be clobbered. The copy is streamed in 64 KiB steps and the file is never held whole in memory, so the footprint stays flat whatever the image size (here 216,727 bytes, well under the cap).
 
 ## Determinism
 
-The program has no inputs besides the shipped image and the output directory, so there is nothing that can differ between the two graded runs: same bytes in, same bytes out, every time. The copy is streamed in 64 KiB chunks and the file is never held in memory whole, so the footprint stays flat whatever the image size (here 216,727 bytes, well under the 1 MiB cap).
+The program has no inputs besides the shipped image and the output directory, so there is nothing that can differ between the two graded runs: same bytes in, same bytes out, every time. On success it prints the byte count it wrote, so the run leaves a one-line receipt on stdout next to the file itself.
 
-## Checks
-
-The transfer is verified on both ends: the source is proven a complete JPEG (SOI marker `ffd8`, EOI marker `ffd9`, at most 1 MiB) before any byte moves, and the destination is proven the same afterwards, with the byte counts compared. The output folder is guarded too — it must be a real directory holding nothing but a previous `entry.png`, so unrelated files can never be clobbered.
-
-## Run it
+## Try it
 
 ```sh
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out python3 main.py
