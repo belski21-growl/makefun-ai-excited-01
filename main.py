@@ -1,132 +1,146 @@
 # SPDX-License-Identifier: MIT
-"""ai-excited-01 entry: write the entry image to /output/entry.png.
+"""Write the ai-excited-01 entry image to the grading output directory.
 
-The image is shipped in this repository as entry.png (a JPEG, named
-entry.png per the competition rules: the file is told apart by its first
-bytes). This program only copies it, byte for byte, so both graded runs
-produce identical output. Standard library only, no network.
+The picture lives in this repository as ``entry.png``. Judging by its
+first bytes it is a JPEG wearing a ``.png`` name, which the competition
+allows: the format is decided by the leading bytes, not the extension.
 
-The copy is chunked (64 KiB) so memory use stays flat regardless of the
-image size, and the output directory is created only when it is missing
-or is a real directory -- anything else fails loudly instead of writing
-into the wrong place.
+This script does one job and nothing else: it streams those exact bytes
+to ``$MAKEFUN_OUTPUT_DIR/entry.png`` (``/output`` when the variable is
+unset). No network, no randomness, no decoding, no re-encoding -- the two
+graded runs therefore land on byte-identical files.
+
+Two safety nets bracket the transfer. Before a single byte moves, the
+source is checked for a whole JPEG (start marker, end marker, size
+within the 1 MiB cap). After the transfer the destination is checked the
+same way, and the byte counts are compared. The destination folder is
+also guarded: it must be a real directory, and it must hold nothing but
+a previous ``entry.png``, so an unrelated folder can never be clobbered.
 """
 
 import os
 import sys
 from pathlib import Path
 
+IMAGE_NAME = "entry.png"
+BLOCK_BYTES = 65536          # 64 KiB per read/write step
+SIZE_CAP = 1_048_576         # competition limit: 1 MiB, inclusive
+JPEG_START = b"\xff\xd8"     # JPEG start-of-image marker
+JPEG_END = b"\xff\xd9"       # JPEG end-of-image marker
 HERE = Path(__file__).resolve().parent
-SRC = HERE / "entry.png"
-CHUNK_SIZE = 64 * 1024  # 64 KiB per read/write step
-MAX_BYTES = 1024 * 1024  # competition limit: at most 1 MiB
-JPEG_SOI = b"\xff\xd8"  # JPEG start-of-image marker
-JPEG_EOI = b"\xff\xd9"  # JPEG end-of-image marker
 
 
-def verify_jpeg(path: Path) -> None:
-    """Check that path is a complete JPEG within the size limit.
-
-    Reads only the head and tail of the file: the first two bytes must be
-    the SOI marker, the last two bytes the EOI marker, and the size must
-    not exceed MAX_BYTES. Raises ValueError on any mismatch so a corrupt
-    or truncated image fails loudly instead of being submitted.
-    """
-    size = path.stat().st_size
-    if size > MAX_BYTES:
-        raise ValueError(
-            f"{path} is {size} bytes, over the 1 MiB limit ({MAX_BYTES})"
-        )
-    if size < 4:
-        raise ValueError(
-            f"{path} is {size} bytes, too small to be a JPEG "
-            f"(needs at least 4 bytes: SOI + EOI markers)"
-        )
-    with path.open("rb") as f:
-        head = f.read(2)
-        f.seek(-2, os.SEEK_END)
-        tail = f.read(2)
-    if head != JPEG_SOI:
-        raise ValueError(
-            f"{path} does not start with the JPEG SOI marker: "
-            f"found bytes {head.hex()} (expected ffd8) — "
-            f"the file is not a JPEG, or it is truncated at the start"
-        )
-    if tail != JPEG_EOI:
-        raise ValueError(
-            f"{path} does not end with the JPEG EOI marker: "
-            f"found bytes {tail.hex()} (expected ffd9) — "
-            f"the file is truncated at the end"
-        )
+class EntryError(Exception):
+    """A problem that must stop the run with a clear message."""
 
 
-
-def fail(message: str) -> int:
-    """Print an error to stderr and return a non-zero exit code."""
-    print(f"ai-excited-01: error: {message}", file=sys.stderr)
+def die(message):
+    """Report *message* on stderr and exit non-zero."""
+    print("ai-excited-01: error: " + message, file=sys.stderr)
     return 1
 
 
-def prepare_output_dir(out_dir: Path) -> Path:
-    """Return the output path, creating the directory when needed.
+def destination_for():
+    """Work out where the entry image has to land.
 
-    Refuses to proceed when the path exists but is not a directory, so a
-    stray file at the output location can never be silently overwritten.
-    Also refuses to write into a non-empty directory that holds anything
-    other than a previous entry.png, so an unrelated directory is never
-    clobbered by accident; a directory holding only entry.png (a re-run
-    over its own earlier output) is fine, since that file is overwritten
-    with identical bytes anyway.
+    Returns the full destination path. The directory is created when it
+    does not exist yet; a path that exists but is not a directory, or a
+    directory holding files other than a previous entry.png, is refused
+    with an EntryError so nothing unrelated is ever overwritten.
     """
-    if out_dir.exists() and not out_dir.is_dir():
-        raise NotADirectoryError(f"output path is not a directory: {out_dir}")
-    if out_dir.is_dir():
-        others = sorted(
-            p.name for p in out_dir.iterdir() if p.name != "entry.png"
+    target_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+    if target_dir.exists() and not target_dir.is_dir():
+        raise EntryError("output path is not a directory: %s" % target_dir)
+    if target_dir.is_dir():
+        strangers = sorted(
+            child.name for child in target_dir.iterdir()
+            if child.name != IMAGE_NAME
         )
-        if others:
-            raise ValueError(
-                f"output directory {out_dir} is not empty: it holds "
-                f"{', '.join(others)} — refusing to write there so "
-                f"nothing unrelated is overwritten"
+        if strangers:
+            raise EntryError(
+                "output directory %s is not empty: it holds %s; refusing "
+                "to write there so nothing unrelated is overwritten"
+                % (target_dir, ", ".join(strangers))
             )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    return out_dir / "entry.png"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir / IMAGE_NAME
 
 
-def copy_chunked(src: Path, dst: Path) -> int:
-    """Copy src to dst in CHUNK_SIZE blocks; return the bytes copied."""
-    total = 0
-    with src.open("rb") as fin, dst.open("wb") as fout:
-        while True:
-            chunk = fin.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            fout.write(chunk)
-            total += len(chunk)
-    return total
+def check_jpeg(path):
+    """Confirm *path* is a whole JPEG inside the size cap.
 
-
-def main() -> int:
-    if not SRC.is_file():
-        return fail(
-            f"entry image missing: expected {SRC} next to main.py — "
-            f"the repository must ship entry.png beside this program"
+    Only the head and the tail are read: the file must open with the SOI
+    marker, close with the EOI marker, and stay within SIZE_CAP bytes.
+    Anything else raises EntryError with the reason spelled out.
+    """
+    size = path.stat().st_size
+    if size > SIZE_CAP:
+        raise EntryError(
+            "%s is %d bytes, over the 1 MiB limit (%d)"
+            % (path, size, SIZE_CAP)
         )
-    out_dir = Path(os.environ.get("MAKEFUN_OUTPUT_DIR", "/output"))
+    if size < 4:
+        raise EntryError(
+            "%s is %d bytes, too small to be a JPEG "
+            "(needs at least 4 bytes: SOI plus EOI markers)" % (path, size)
+        )
+    with path.open("rb") as handle:
+        first = handle.read(2)
+        handle.seek(-2, os.SEEK_END)
+        last = handle.read(2)
+    if first != JPEG_START:
+        raise EntryError(
+            "%s does not start with the JPEG SOI marker: found bytes %s "
+            "(expected ffd8); the file is not a JPEG, or it is cut off "
+            "at the start" % (path, first.hex())
+        )
+    if last != JPEG_END:
+        raise EntryError(
+            "%s does not end with the JPEG EOI marker: found bytes %s "
+            "(expected ffd9); the file is cut off at the end"
+            % (path, last.hex())
+        )
+    return size
+
+
+def stream_copy(source, destination):
+    """Move *source* to *destination* in BLOCK_BYTES steps.
+
+    Returns the number of bytes written. The file is never held in
+    memory whole, so the memory footprint stays flat at any image size.
+    """
+    written = 0
+    with source.open("rb") as reader, destination.open("wb") as writer:
+        while True:
+            block = reader.read(BLOCK_BYTES)
+            if not block:
+                break
+            writer.write(block)
+            written += len(block)
+    return written
+
+
+def run():
+    """Copy the entry image, verified before and after. Returns 0 on success."""
+    source = HERE / IMAGE_NAME
+    if not source.is_file():
+        return die(
+            "entry image missing: expected %s next to main.py; the "
+            "repository must ship entry.png beside this program" % source
+        )
     try:
-        verify_jpeg(SRC)  # source must be a complete JPEG before copying
-        out_path = prepare_output_dir(out_dir)
-        copied = copy_chunked(SRC, out_path)
-        verify_jpeg(out_path)  # output must be a complete JPEG after copying
-    except (OSError, ValueError) as exc:
-        return fail(str(exc))
-    if copied != SRC.stat().st_size:
-        return fail(
-            f"short copy: wrote {copied} bytes, expected {SRC.stat().st_size}"
+        expected = check_jpeg(source)
+        destination = destination_for()
+        written = stream_copy(source, destination)
+        check_jpeg(destination)
+    except (OSError, EntryError) as problem:
+        return die(str(problem))
+    if written != expected:
+        return die(
+            "short copy: wrote %d bytes, expected %d" % (written, expected)
         )
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())
